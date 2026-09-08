@@ -2,7 +2,7 @@
 
 > 既然都有 API 了，为什么要加入真的大模型呢？
 
-一个把许家印“空城计”做成 API 的 OpenAI Chat Completions 兼容恶搞服务。
+一个把许家印“空城计”做成 API 的 OpenAI Chat Completions、Responses 和 Anthropic Messages 兼容恶搞服务。
 
 它不调用真实模型，也不理解 prompt。对于合法的聊天补全请求，它会：
 
@@ -19,6 +19,8 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `POST` | `/v1/chat/completions` | OpenAI 风格聊天补全，支持 `stream` |
+| `POST` | `/v1/responses` | OpenAI Responses API，支持 `stream` |
+| `POST` | `/v1/messages` | Anthropic Messages API，支持 `stream` |
 | `GET` | `/v1/models` | 返回 `xujiayin` 模型 |
 | `GET` | `/v1/models/xujiayin` | 返回模型详情 |
 | `GET` | `/health` | 健康检查 |
@@ -81,6 +83,44 @@ curl -N http://localhost:8080/v1/chat/completions \
 ```
 
 流式响应顺序为：assistant role chunk、`<think>` chunk、60 个间隔约 1 秒的空格 chunk、结束 chunk 和 `data: [DONE]`。
+
+### OpenAI Responses API
+
+非流式请求：
+
+```bash
+curl http://localhost:8080/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"xujiayin","input":"请开始思考"}'
+```
+
+流式请求使用 Responses API 的语义事件，例如 `response.created`、`response.output_text.delta` 和 `response.completed`：
+
+```bash
+curl -N http://localhost:8080/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"model":"xujiayin","input":"请开始思考","stream":true}'
+```
+
+### Anthropic Messages API
+
+Messages API 请求需要提供 `max_tokens`：
+
+```bash
+curl http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"xujiayin","max_tokens":64,"messages":[{"role":"user","content":"请开始思考"}]}'
+```
+
+流式请求使用 Anthropic 的 `message_start`、`content_block_delta`、`message_delta` 和 `message_stop` 事件：
+
+```bash
+curl -N http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"xujiayin","max_tokens":64,"messages":[{"role":"user","content":"请开始思考"}],"stream":true}'
+```
 
 ## 梗背景：许家印“空城计”
 
