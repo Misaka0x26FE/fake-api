@@ -6,10 +6,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
-const helloWorld = "Hello, World!"
+const (
+	thinkingWord = "<think>"
+	spaceCount   = 60
+	modelName    = "xujiayin"
+)
+
+var fullContent = thinkingWord + strings.Repeat(" ", spaceCount)
 
 type ChatCompletionRequest struct {
 	Model            string                       `json:"model"`
@@ -120,7 +127,7 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 
-	addr := ":8080"
+	addr := "0.0.0.0:8080"
 	log.Printf("fake-api listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
@@ -170,7 +177,7 @@ func handleNonStream(w http.ResponseWriter, id string, created int64, model stri
 				Index: 0,
 				Message: &ChatCompletionMessage{
 					Role:    "assistant",
-					Content: helloWorld,
+					Content: fullContent,
 				},
 				FinishReason: &finishReason,
 			},
@@ -184,7 +191,9 @@ func handleNonStream(w http.ResponseWriter, id string, created int64, model stri
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	encoder.Encode(resp)
 }
 
 func handleStream(w http.ResponseWriter, id string, created int64, model string) {
@@ -198,9 +207,11 @@ func handleStream(w http.ResponseWriter, id string, created int64, model string)
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
 
-	chunks := []ChatCompletionResponse{
-		{
+	send := func(content, role string) {
+		chunk := ChatCompletionResponse{
 			ID:      id,
 			Object:  "chat.completion.chunk",
 			Created: created,
@@ -209,28 +220,24 @@ func handleStream(w http.ResponseWriter, id string, created int64, model string)
 				{
 					Index: 0,
 					Delta: &ChatCompletionDelta{
-						Role:    "assistant",
-						Content: "",
+						Role:    role,
+						Content: content,
 					},
 					FinishReason: nil,
 				},
 			},
-		},
-		{
-			ID:      id,
-			Object:  "chat.completion.chunk",
-			Created: created,
-			Model:   model,
-			Choices: []ChatCompletionChoice{
-				{
-					Index: 0,
-					Delta: &ChatCompletionDelta{
-						Content: helloWorld,
-					},
-					FinishReason: nil,
-				},
-			},
-		},
+		}
+		fmt.Fprint(w, "data: ")
+		encoder.Encode(chunk)
+		fmt.Fprint(w, "\n")
+		flusher.Flush()
+	}
+
+	send("", "assistant")
+	send(thinkingWord, "")
+	for i := 0; i < spaceCount; i++ {
+		time.Sleep(time.Second)
+		send(" ", "")
 	}
 
 	finishReason := "stop"
@@ -248,15 +255,9 @@ func handleStream(w http.ResponseWriter, id string, created int64, model string)
 		},
 	}
 
-	for _, chunk := range chunks {
-		data, _ := json.Marshal(chunk)
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	data, _ := json.Marshal(finishChunk)
-	fmt.Fprintf(w, "data: %s\n\n", data)
+	fmt.Fprint(w, "data: ")
+	encoder.Encode(finishChunk)
+	fmt.Fprint(w, "\n")
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
@@ -284,7 +285,7 @@ func handleListModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data: []ModelObject{
 			{
-				ID:      "hello",
+				ID:      modelName,
 				Object:  "model",
 				Created: 1700000000,
 				OwnedBy: "fake-api",
@@ -298,12 +299,12 @@ func handleListModels(w http.ResponseWriter, r *http.Request) {
 
 func handleGetModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if id != "hello" {
+	if id != modelName {
 		writeError(w, http.StatusNotFound, "invalid_request_error", "Model '"+id+"' not found")
 		return
 	}
 	resp := ModelObject{
-		ID:      "hello",
+		ID:      modelName,
 		Object:  "model",
 		Created: 1700000000,
 		OwnedBy: "fake-api",
